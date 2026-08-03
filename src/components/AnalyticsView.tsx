@@ -17,6 +17,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 }) => {
   const isLvl2 = appLevel === 'lvl2';
   const progressMap = new Map<string, ProgressRecord>(progress.map(p => [p.vocabularyId, p]));
+  const progressLvl1Map = new Map<string, ProgressRecord>(StorageService.getProgress('lvl1').map(p => [p.vocabularyId, p]));
+
+  const activeVocab = isLvl2
+    ? vocabulary.filter(v => StorageService.getLearningState(progressLvl1Map.get(v.id) || null) === 'Mastered')
+    : vocabulary;
 
   let totalAttempts = 0;
   let totalCorrect = 0;
@@ -24,7 +29,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   let needsWorkCount = 0;
   let encounteredCount = 0;
 
-  vocabulary.forEach(v => {
+  activeVocab.forEach(v => {
     const p = progressMap.get(v.id) || null;
     const state = StorageService.getLearningState(p);
 
@@ -44,7 +49,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     }
   });
 
-  const neverPracticedCount = vocabulary.length - encounteredCount;
+  const neverPracticedCount = activeVocab.length - encounteredCount;
   const overallAccuracy = totalAttempts > 0 ? (totalCorrect / totalAttempts) * 100 : 0;
 
   const getAccuracyColorBg = (acc: number) => {
@@ -57,7 +62,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   const sessionCorrect = session?.correctCount || 0;
   const sessionAccuracy = sessionReviewed > 0 ? (sessionCorrect / sessionReviewed) * 100 : 0;
 
-  const masteringPercent = vocabulary.length > 0 ? (masteredCount / vocabulary.length) * 100 : 0;
+  const masteringPercent = activeVocab.length > 0 ? (masteredCount / activeVocab.length) * 100 : 0;
 
   const recentActivity = session?.sessionStatistics?.recentActivity || [];
 
@@ -80,7 +85,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         <div className="bg-white dark:bg-slate-900 border-2.5 border-black dark:border-white rounded-2xl p-3.5 shadow-[3.5px_3.5px_0px_0px_#000] dark:shadow-[3.5px_3.5px_0px_0px_#A855F7]">
           <span className="text-black dark:text-slate-400 text-[10px] font-black uppercase block">Total Deck</span>
           <strong className="text-2xl font-black font-display text-slate-900 dark:text-white block mt-0.5">
-            {vocabulary.length}
+            {activeVocab.length}
           </strong>
         </div>
         <div className="bg-[#FFE600] text-black border-2.5 border-black rounded-2xl p-3.5 shadow-[3.5px_3.5px_0px_0px_#000]">

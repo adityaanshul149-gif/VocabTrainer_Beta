@@ -94,6 +94,36 @@ export class StorageService {
     return this.write(KEYS.vocabulary, records);
   }
 
+  public static updateVocabularyRecord(oldId: string, updated: VocabularyRecord): boolean {
+    const list = this.getVocabulary();
+    const idx = list.findIndex(item => item.id === oldId);
+    if (idx === -1) {
+      list.push(updated);
+    } else {
+      list[idx] = { ...updated, updatedAt: new Date().toISOString() };
+    }
+    const saved = this.setVocabulary(list);
+
+    // If ID changed, migrate progress records
+    if (saved && oldId !== updated.id) {
+      for (const level of ['lvl1', 'lvl2'] as AppLevel[]) {
+        const progress = this.getProgress(level);
+        let changed = false;
+        const updatedProgress = progress.map(p => {
+          if (p.vocabularyId === oldId) {
+            changed = true;
+            return { ...p, vocabularyId: updated.id };
+          }
+          return p;
+        });
+        if (changed) {
+          this.setProgress(updatedProgress, level);
+        }
+      }
+    }
+    return saved;
+  }
+
   public static getProgress(level: AppLevel = 'lvl1'): ProgressRecord[] {
     const key = level === 'lvl2' ? KEYS.progressLvl2 : KEYS.progress;
     const data = this.read<ProgressRecord[]>(key);

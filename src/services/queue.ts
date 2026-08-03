@@ -47,11 +47,10 @@ export class QueueService {
       }
 
       if (level === 'lvl2') {
-        // Level 2 eligibility: Must be Mastered in Level 1 OR have Level 2 custom distractors
+        // Level 2 eligibility: MUST be Mastered in Level 1
         const p1 = progressLvl1Map.get(word.id) || null;
         const state1 = StorageService.getLearningState(p1);
-        const hasLvl2Data = Boolean(word.level2Distractors && word.level2Distractors.length > 0);
-        if (state1 !== 'Mastered' && !hasLvl2Data) {
+        if (state1 !== 'Mastered') {
           return false;
         }
 

@@ -26,9 +26,21 @@ export interface SentencePackResult {
 
 export class VocabularyService {
   private static canonicalSector(value: string): string {
-    const norm = String(value || '').replace(/^\uFEFF/, '').trim().toLowerCase();
-    const found = VALID_SECTORS.find(s => s.toLowerCase() === norm);
-    return found || 'General';
+    const raw = String(value || '').replace(/^\uFEFF/, '').trim();
+    if (!raw) return 'General';
+
+    try {
+      const currentVocab = StorageService.getVocabulary();
+      const allKnown = Array.from(new Set([...currentVocab.map(v => v.sector).filter(Boolean), ...VALID_SECTORS]));
+      const found = allKnown.find(s => s.toLowerCase() === raw.toLowerCase());
+      if (found) return found;
+    } catch {
+      // fallback if storage not ready
+      const foundDefault = VALID_SECTORS.find(s => s.toLowerCase() === raw.toLowerCase());
+      if (foundDefault) return foundDefault;
+    }
+
+    return raw;
   }
 
   public static parsePipeImport(text: string): ParseResult {
@@ -217,34 +229,63 @@ export class VocabularyService {
     let processed = 0;
 
     lines.forEach((line, idx) => {
-      if (idx === 0 && (line.toLowerCase().startsWith('id|') || line.toLowerCase().startsWith('word|'))) {
+      if (idx === 0 && (line.toLowerCase().startsWith('id|') || line.toLowerCase().startsWith('word|') || line.toLowerCase().startsWith('id '))) {
         return;
       }
       processed++;
-      const parts = line.split('|').map(p => p.trim());
-      if (parts.length < 2) {
-        errors.push(`Row ${idx + 1}: Line contains fewer than 2 pipe-separated fields.`);
+
+      // Check if line contains pipe or semicolon format:
+      // Format 1: ID | Option1 ; Option2 ; Option3 ; Option4 ; Option5
+      // Format 2: ID | Word | Option1 ; Option2 ; Option3 ; Option4 ; Option5
+      // Format 3: ID | Word | Definition | Distractor1 | Distractor2 | Distractor3 | Distractor4
+
+      const pipeParts = line.split('|').map(p => p.trim());
+      
+      if (pipeParts.length < 2) {
+        errors.push(`Row ${idx + 1}: Line contains fewer than 2 fields.`);
         return;
       }
 
-      const first = parts[0];
-      const second = parts[1];
+      const idOrWordCandidate = pipeParts[0];
+      const secondCandidate = pipeParts[1];
 
-      let target = mapById.get(first.toLowerCase()) || mapByWord.get(first.toLowerCase()) || mapByWord.get(second.toLowerCase());
+      let target = mapById.get(idOrWordCandidate.toLowerCase()) || 
+                   mapByWord.get(idOrWordCandidate.toLowerCase()) || 
+                   mapByWord.get(secondCandidate.toLowerCase());
 
       if (!target) {
-        unknownIds.push(first);
+        unknownIds.push(idOrWordCandidate);
         return;
       }
 
-      let remaining = parts.slice(2);
-      if (remaining.length >= 5) {
-        target.definition = remaining[0];
-        target.level2Distractors = remaining.slice(1, 5);
-      } else if (remaining.length >= 4) {
-        target.level2Distractors = remaining.slice(0, 4);
-      } else if (remaining.length > 0) {
-        target.level2Distractors = remaining;
+      // Check if second field or third field contains semicolon separated options
+      let optionsCandidate = pipeParts.slice(1).join(' | ');
+      if (pipeParts.length > 2 && mapByWord.get(secondCandidate.toLowerCase())) {
+        optionsCandidate = pipeParts.slice(2).join(' | ');
+      }
+
+      if (optionsCandidate.includes(';')) {
+        const semicolonOptions = optionsCandidate.split(';').map(o => o.trim()).filter(Boolean);
+        if (semicolonOptions.length >= 5) {
+          // 1 exact meaning + 4 distractors
+          target.definition = semicolonOptions[0];
+          target.level2Distractors = semicolonOptions.slice(1, 5);
+        } else if (semicolonOptions.length >= 4) {
+          target.level2Distractors = semicolonOptions.slice(0, 4);
+        } else {
+          target.level2Distractors = semicolonOptions;
+        }
+      } else {
+        // Standard pipe format
+        let remaining = pipeParts.slice(2);
+        if (remaining.length >= 5) {
+          target.definition = remaining[0];
+          target.level2Distractors = remaining.slice(1, 5);
+        } else if (remaining.length >= 4) {
+          target.level2Distractors = remaining.slice(0, 4);
+        } else if (remaining.length > 0) {
+          target.level2Distractors = remaining;
+        }
       }
 
       target.updatedAt = new Date().toISOString();

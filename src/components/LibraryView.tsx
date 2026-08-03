@@ -4,6 +4,8 @@ import { StorageService } from '../services/storage';
 import { VocabularyService } from '../services/vocabulary';
 import { WordDetailModal } from './WordDetailModal';
 import { ExportModal } from './ExportModal';
+import { PronunciationButton } from './PronunciationButton';
+import { getPronunciation } from '../services/pronunciation';
 import {
   Search,
   Download,
@@ -70,16 +72,39 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [copyNotice, setCopyNotice] = useState(false);
 
-  // Dynamically extract unique existing sectors from loaded vocabulary
+  // Quick lookup map for Level 1 progress
+  const progressLvl1Map = useMemo(
+    () => new Map<string, ProgressRecord>(StorageService.getProgress('lvl1').map(p => [p.vocabularyId, p])),
+    [progress, vocabulary]
+  );
+
+  // Quick lookup map for Level 2 progress
+  const progressLvl2Map = useMemo(
+    () => new Map<string, ProgressRecord>(StorageService.getProgress('lvl2').map(p => [p.vocabularyId, p])),
+    [progress, vocabulary]
+  );
+
+  // Active vocabulary deck for the current appLevel or levelFilter
+  const activeDeck = useMemo(() => {
+    if (levelFilter === 'lvl2' || (levelFilter === 'all' && appLevel === 'lvl2')) {
+      return vocabulary.filter(item => {
+        const p1 = progressLvl1Map.get(item.id) || null;
+        return StorageService.getLearningState(p1) === 'Mastered';
+      });
+    }
+    return vocabulary;
+  }, [vocabulary, appLevel, levelFilter, progressLvl1Map]);
+
+  // Dynamically extract unique existing sectors from loaded active deck
   const availableSectors = useMemo(() => {
     const sectorsSet = new Set<string>();
-    vocabulary.forEach(item => {
+    activeDeck.forEach(item => {
       if (item.sector) sectorsSet.add(item.sector);
     });
     return Array.from(sectorsSet).sort();
-  }, [vocabulary]);
+  }, [activeDeck]);
 
-  // Quick lookup map for progress
+  // Quick lookup map for active level progress
   const progressMap = useMemo(
     () => new Map<string, ProgressRecord>(progress.map(p => [p.vocabularyId, p])),
     [progress]
@@ -87,17 +112,27 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
   // Filter logic
   const filteredVocabulary = useMemo(() => {
-    return vocabulary.filter(item => {
-      const p = progressMap.get(item.id) || null;
-      const state = StorageService.getLearningState(p);
+    return activeDeck.filter(item => {
+      const p1 = progressLvl1Map.get(item.id) || null;
+      const p2 = progressLvl2Map.get(item.id) || null;
+      const state1 = StorageService.getLearningState(p1);
+      const state2 = StorageService.getLearningState(p2);
+
+      let p = p1;
+      let state = state1;
+
+      if (levelFilter === 'lvl2' || (levelFilter === 'all' && appLevel === 'lvl2' && state1 === 'Mastered')) {
+        p = p2;
+        state = state2;
+      }
+
       const attempts = p ? p.attempts : 0;
       const accuracy = p ? p.accuracy : 0;
 
       // Level Filter
       if (levelFilter === 'lvl2') {
-        const isMasteredInLvl1 = state === 'Mastered';
-        const hasDistractors = Boolean(item.level2Distractors && item.level2Distractors.length > 0);
-        if (!isMasteredInLvl1 && !hasDistractors) return false;
+        const isMasteredInLvl1 = state1 === 'Mastered';
+        if (!isMasteredInLvl1) return false;
       }
 
       // Sector Filter
@@ -160,6 +195,33 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   // Sort logic
   const sortedVocabulary = useMemo(() => {
     const list = [...filteredVocabulary];
+
+    // If there is a search query, rank prefix matches on word and ID first!
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+
+      const getSearchScore = (item: VocabularyRecord) => {
+        const wordLower = item.word.toLowerCase();
+        const idLower = item.id.toLowerCase();
+
+        if (wordLower === q) return 100;
+        if (wordLower.startsWith(q)) return 90;
+        if (idLower === q) return 85;
+        if (idLower.startsWith(q)) return 80;
+        if (wordLower.includes(q)) return 70;
+        if (idLower.includes(q)) return 60;
+        return 50;
+      };
+
+      return list.sort((a, b) => {
+        const scoreA = getSearchScore(a);
+        const scoreB = getSearchScore(b);
+        if (scoreA !== scoreB) {
+          return scoreB - scoreA; // Higher relevance first
+        }
+        return a.word.localeCompare(b.word);
+      });
+    }
 
     if (sortKey === 'random') {
       // Deterministic shuffle view
@@ -379,7 +441,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               type="search"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Search words, definitions, examples..."
+              placeholder="Search by word, word ID (e.g. VOC000001), definition..."
               className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-black dark:border-slate-700 rounded-xl pl-10 pr-8 py-2.5 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-500 font-bold focus:outline-none focus:border-purple-600"
             />
             {searchQuery && (
@@ -510,9 +572,70 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           </div>
         ) : (
           sortedVocabulary.map(item => {
-            const p = progressMap.get(item.id) || null;
-            const state = StorageService.getLearningState(p);
+            const p1 = progressLvl1Map.get(item.id) || null;
+            const p2 = progressLvl2Map.get(item.id) || null;
+            const state1 = StorageService.getLearningState(p1);
+            const state2 = StorageService.getLearningState(p2);
+            const isQualifiedL2 = state1 === 'Mastered';
             const isSelected = selectedIds.has(item.id);
+
+            const getBadgeClass = (st: string) => {
+              switch (st) {
+                case 'Mastered':
+                  return 'bg-[#4ADE80] text-black border-black';
+                case 'Needs Work':
+                  return 'bg-[#FF6B6B] text-black border-black';
+                case 'Learning':
+                  return 'bg-[#A855F7] text-white border-black';
+                default:
+                  return 'bg-slate-200 text-black dark:bg-slate-800 dark:text-white border-black';
+              }
+            };
+
+            const renderBadges = () => {
+              const b1 = (
+                <span
+                  key="b1"
+                  className={`shrink-0 px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase border shadow-[1.5px_1.5px_0px_0px_#000] whitespace-nowrap ${getBadgeClass(
+                    state1
+                  )}`}
+                >
+                  {state1} I
+                </span>
+              );
+
+              const b2 = (
+                <span
+                  key="b2"
+                  className={`shrink-0 px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase border shadow-[1.5px_1.5px_0px_0px_#000] whitespace-nowrap ${getBadgeClass(
+                    state2
+                  )}`}
+                >
+                  {state2} II
+                </span>
+              );
+
+              if (levelFilter === 'lvl1') {
+                return <div className="flex flex-col items-end gap-1 shrink-0">{b1}</div>;
+              }
+              if (levelFilter === 'lvl2') {
+                return <div className="flex flex-col items-end gap-1 shrink-0">{b2}</div>;
+              }
+
+              // levelFilter === 'all'
+              if (isQualifiedL2) {
+                return (
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    {b1}
+                    {b2}
+                  </div>
+                );
+              }
+              return <div className="flex flex-col items-end gap-1 shrink-0">{b1}</div>;
+            };
+
+            const isL2ActiveCard = levelFilter === 'lvl2' || (levelFilter === 'all' && appLevel === 'lvl2' && isQualifiedL2);
+            const activeP = isL2ActiveCard ? p2 : p1;
 
             return (
               <div
@@ -532,37 +655,36 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                       className="mt-1 accent-black w-4 h-4 cursor-pointer rounded border-2 border-black"
                     />
                     <div>
-                      <button
-                        type="button"
-                        onClick={() => setActiveDetailWord(item)}
-                        className="text-base font-black font-display uppercase hover:underline text-left cursor-pointer"
-                      >
-                        {item.word}
-                      </button>
-                      <p className="text-xs font-bold opacity-90 line-clamp-1 mt-0.5">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setActiveDetailWord(item)}
+                          className="text-base font-black font-display uppercase hover:underline hover:text-purple-600 dark:hover:text-purple-400 text-left cursor-pointer"
+                        >
+                          {item.word}
+                        </button>
+                      </div>
+                      <div className="text-[11px] italic font-serif text-purple-700 dark:text-purple-300 font-medium leading-none mt-0.5">
+                        {getPronunciation(item.word, item.phonetic)}
+                      </div>
+                      <div className="mt-1">
+                        <PronunciationButton word={item.word} size="sm" />
+                      </div>
+                      <p className="text-xs font-bold opacity-90 line-clamp-1 mt-1">
                         {item.definition}
                       </p>
                     </div>
                   </div>
 
-                  <span
-                    className={`shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase border border-black ${
-                      state === 'Mastered'
-                        ? 'bg-[#4ADE80] text-black'
-                        : state === 'Needs Work'
-                        ? 'bg-[#FF6B6B] text-black'
-                        : state === 'Learning'
-                        ? 'bg-[#A855F7] text-white'
-                        : 'bg-slate-200 text-black dark:bg-slate-800 dark:text-white'
-                    }`}
-                  >
-                    {state}
-                  </span>
+                  {renderBadges()}
                 </div>
 
                 <div className="flex items-center justify-between text-[11px] font-bold mt-3 pt-2 border-t-2 border-black/20 dark:border-white/20">
                   <span className="uppercase">Sector: {item.sector}</span>
-                  <span>Acc: {p ? `${Math.round(p.accuracy * 100)}%` : '0%'} ({p?.attempts || 0} tries)</span>
+                  <span>
+                    {isL2ActiveCard ? 'L2 Acc: ' : 'L1 Acc: '}
+                    {activeP ? `${Math.round(activeP.accuracy * 100)}%` : '0%'} ({activeP?.attempts || 0} tries)
+                  </span>
                   <button
                     type="button"
                     onClick={() => setActiveDetailWord(item)}

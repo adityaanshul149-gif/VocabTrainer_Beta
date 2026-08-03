@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { VocabularyRecord, ProgressRecord } from '../types';
+import { VocabularyRecord, ProgressRecord, AppLevel } from '../types';
 import { StorageService } from '../services/storage';
 import { VocabularyService } from '../services/vocabulary';
 import { Copy, Download, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
@@ -8,12 +8,14 @@ interface SectorAnalyticsViewProps {
   vocabulary: VocabularyRecord[];
   progress: ProgressRecord[];
   onDataChanged: () => void;
+  appLevel?: AppLevel;
 }
 
 export const SectorAnalyticsView: React.FC<SectorAnalyticsViewProps> = ({
   vocabulary,
   progress,
-  onDataChanged
+  onDataChanged,
+  appLevel = 'lvl1'
 }) => {
   const [filter, setFilter] = useState('all');
   const [sort, setSort] = useState('alphabetical');
@@ -22,6 +24,11 @@ export const SectorAnalyticsView: React.FC<SectorAnalyticsViewProps> = ({
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const progressMap = new Map<string, ProgressRecord>(progress.map(p => [p.vocabularyId, p]));
+  const progressLvl1Map = new Map<string, ProgressRecord>(StorageService.getProgress('lvl1').map(p => [p.vocabularyId, p]));
+
+  const activeVocab = appLevel === 'lvl2'
+    ? vocabulary.filter(v => StorageService.getLearningState(progressLvl1Map.get(v.id) || null) === 'Mastered')
+    : vocabulary;
 
   // Group words by sector
   const sectorGroups = new Map<
@@ -29,7 +36,7 @@ export const SectorAnalyticsView: React.FC<SectorAnalyticsViewProps> = ({
     { name: string; words: { word: VocabularyRecord; progress: ProgressRecord | null }[] }
   >();
 
-  vocabulary.forEach(word => {
+  activeVocab.forEach(word => {
     if (!sectorGroups.has(word.sector)) {
       sectorGroups.set(word.sector, { name: word.sector, words: [] });
     }

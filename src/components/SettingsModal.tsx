@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { StorageService } from '../services/storage';
 import { FullBackup, IntegrityReport } from '../types';
+import { TTSSettingsPanel } from './TTSSettingsPanel';
 import { X, Download, Upload, ShieldCheck, Database, PlusCircle, FileText, Sparkles, Sun, Moon, Target } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -96,8 +97,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-900 border-3 border-black dark:border-white rounded-2xl max-w-lg w-full p-6 shadow-[6px_6px_0px_0px_#000] dark:shadow-[6px_6px_0px_0px_#A855F7] space-y-5 max-h-[90vh] overflow-y-auto font-sans">
+    <div 
+      onClick={onClose}
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 pt-4 pb-24"
+    >
+      <div 
+        onClick={e => e.stopPropagation()}
+        className="bg-white dark:bg-slate-900 border-3 border-black dark:border-white rounded-2xl max-w-lg w-full p-5 shadow-[6px_6px_0px_0px_#000] dark:shadow-[6px_6px_0px_0px_#A855F7] space-y-4 max-h-[calc(100dvh-7.5rem)] my-auto overflow-y-auto font-sans"
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b-2.5 border-black dark:border-slate-800 pb-3">
           <div className="flex items-center gap-2.5">
@@ -166,6 +173,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Text-To-Speech Configuration Panel */}
+        <TTSSettingsPanel />
 
         {/* Vocabulary Management Section */}
         <div className="space-y-3 bg-[#FFE600]/20 dark:bg-slate-800/80 border-2 border-black dark:border-slate-700 p-4 rounded-xl">

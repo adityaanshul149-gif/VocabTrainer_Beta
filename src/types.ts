@@ -30,6 +30,7 @@ export interface VocabularyRecord {
   definition: string;
   exampleUsage: string;
   sentences: Sentence[];
+  phonetic?: string;
   level2Distractors?: string[];
   createdAt: string;
   updatedAt: string;
